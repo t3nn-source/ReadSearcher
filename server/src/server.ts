@@ -1,21 +1,58 @@
 import express from 'express';
 import path from 'node:path';
-import db from './config/connection.js';
-import routes from './routes/index.js';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import './config/connection.js';
+import cors from 'cors';
+import { ApolloServer } from '@apollo/server';
+import typeDefs from './schemas/typeDefs.js';
+import  resolvers from './schemas/resolvers.js';
+import { expressMiddleware } from '@apollo/server/express4';
+import { authenticateToken } from './services/auth.js';
 
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config();
+console.log('NODE_ENV:', process.env.NODE_ENV);
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 4000;
 
-app.use(express.urlencoded({ extended: true }));
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+});
+
+await server.start();
+
+app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  '/graphql',
+  expressMiddleware(server, {
+    context: async ({ req }) => {
+     const user = authenticateToken(req);
+      return { user };
+    },
+  })
+);
+
 
 // if we're in production, serve client/build as static assets
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/build')));
+  app.use(express.static(path.join(__dirname, '../../client/dist')));
+
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(path.resolve(), '../../client/dist/index.html'));
+  });
 }
 
-app.use(routes);
 
-db.once('open', () => {
-  app.listen(PORT, () => console.log(`🌍 Now listening on localhost:${PORT}`));
-});
+
+
+app.listen(PORT, () =>
+  console.log(`Server running at http://localhost:${PORT}/graphql`)
+);
